@@ -114,6 +114,12 @@ return [
     | reached through the Entra "My Apps" tile must either retire the tile or
     | switch this off.
     |
+    | It also requires `SESSION_SAME_SITE=none` and `SESSION_SECURE_COOKIE=true`.
+    | The identity provider POSTs its response to the assertion consumer from
+    | its own origin, and Laravel's default `Lax` cookie is withheld on a
+    | cross-site POST — so the request ID stored at login is not there to match
+    | against, and every sign-in is refused. See the README.
+    |
     | `reject_unsolicited` additionally has the toolkit refuse a response
     | carrying an InResponseTo it cannot account for, and only takes effect
     | together with the switch above — on its own it refuses every ordinary

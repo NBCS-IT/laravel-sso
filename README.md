@@ -448,6 +448,38 @@ And two that are **on by default**, which you switch off only for a reason:
 | `strict_request_binding` | Ties a response to the AuthnRequest this application sent, which is what closes login CSRF — without it the assertion consumer accepts any validly signed, in-date, correctly addressed response, whether or not anybody here asked for it. Carried down to the vendor package as `saml2.strictRequestBinding`. **It refuses IdP-initiated sign-in**, so an application reached through the Entra "My Apps" tile must retire the tile or switch this off. |
 | `reject_unsolicited` | Additionally has the toolkit refuse a response carrying an `InResponseTo` it cannot account for. Takes effect only together with the switch above, and deliberately so: on its own it would reject every ordinary sign-in, because Entra answers an AuthnRequest with an `InResponseTo` and there would be no stored request ID to match it against. Together, the two decide what a **lost request ID** means — a dropped cookie, an expired session. On: the sign-in fails and the person retries. Off: the binding silently falls back to accepting any valid response, which is the thing it exists to prevent. |
 
+### Request binding needs `SESSION_SAME_SITE=none`
+
+Read this before turning binding on, because it is the one thing that will stop a working
+integration dead:
+
+```dotenv
+SESSION_SAME_SITE=none
+SESSION_SECURE_COOKIE=true
+```
+
+The identity provider delivers its response by **POSTing to `/saml2/{uuid}/acs` from its own
+origin**. Laravel defaults the session cookie to `SameSite=Lax`, and a Lax cookie is withheld on a
+cross-site POST — so the assertion consumer runs on a brand-new, empty session. The AuthnRequest ID
+stored at login is not there, and the sign-in is refused with:
+
+```
+The Response has an InResponseTo attribute: ONELOGIN_… while no InResponseTo was expected
+```
+
+That message is the binding working correctly: a response to a request, with no record of the
+request having been made. `SameSite=None` requires `Secure`, which a SAML service provider is
+already serving over HTTPS.
+
+Without binding this went unnoticed, because the assertion consumer simply created a new session and
+signed the user into that one — which also silently discarded whatever session they arrived with,
+`url.intended` included. So this is worth setting whether or not you turn binding on.
+
+The cost is that the application's session cookie is now sent on cross-site requests, leaving CSRF
+protection to Laravel's token checking. That is the standard posture for a SAML service provider
+using the HTTP-POST binding, and the two SAML endpoints are the only routes exempt from token
+checking.
+
 Left to the application, and not coverable from here:
 
 - **`proxyVars` must stay off** unless the proxy in front of you is known to strip inbound
