@@ -1,0 +1,113 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
+use NBCSIT\Sso\Certificates\SpCertificateStore;
+use NBCSIT\Sso\Models\IdentityProvider;
+use NBCSIT\Sso\Settings\SamlSettings;
+
+/**
+ * This application's own signing certificate, and whether it signs with it.
+ *
+ * The certificate here is not the identity provider's — that one arrives in a
+ * metadata document and is managed on the other screen. This is the one this
+ * application proves itself with, which means it is the one that has to be
+ * imported at the identity provider by hand before anything starts using it.
+ * The whole shape of the screen follows from that: generate a second
+ * certificate, get it imported while the first is still in use, and only then
+ * promote.
+ */
+class SamlCertificateController extends Controller
+{
+    /**
+     * The longest a certificate may be asked to last for, matching what the
+     * package is willing to mint.
+     */
+    private const MAX_DAYS = 7300;
+
+    public function show(SpCertificateStore $store, SamlSettings $settings): View
+    {
+        // `config('saml.gate')` so the common case needs no edit at all. This is
+        // your controller now — replace it with whatever your application
+        // authorises settings screens by.
+        $this->authorize(config('saml.gate'));
+
+        return view('admin.settings.saml-certificate', [
+            'pair' => $store->pair(),
+            'canSign' => $store->canSign(),
+            'settings' => $settings,
+            'providers' => IdentityProvider::query()->orderBy('key')->get(),
+        ]);
+    }
+
+    public function store(Request $request, SpCertificateStore $store): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $validated = $request->validate([
+            'slot' => ['required', Rule::in(['primary', 'secondary'])],
+            'days' => ['nullable', 'integer', 'min:1', 'max:'.self::MAX_DAYS],
+
+            // Typed rather than clicked. Replacing the certificate in use is the
+            // only action on this screen with no undo, and a confirm() dialog is
+            // the same gesture as every recoverable action elsewhere.
+            'confirm' => ['nullable', 'required_if:slot,primary', 'in:replace'],
+        ]);
+
+        $days = isset($validated['days']) ? (int) $validated['days'] : null;
+
+        $report = $validated['slot'] === 'primary'
+            ? $store->generatePrimary(days: $days, force: true)
+            : $store->generateSecondary(days: $days);
+
+        return back()
+            ->with($report->succeeded() ? 'status' : 'error', $report->message)
+            ->with('warnings', $report->warnings);
+    }
+
+    public function promote(SpCertificateStore $store): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $report = $store->promote();
+
+        return back()->with($report->succeeded() ? 'status' : 'error', $report->message);
+    }
+
+    public function update(Request $request, SamlSettings $settings, SpCertificateStore $store): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $request->validate([
+            'sign_requests' => ['boolean'],
+            'sign_metadata' => ['boolean'],
+        ]);
+
+        $signRequests = $request->boolean('sign_requests');
+        $signMetadata = $request->boolean('sign_metadata');
+
+        // The package ignores both switches at runtime when there is nothing to
+        // sign with, because honouring them would stop every SAML route
+        // resolving — including the metadata page an administrator would go to
+        // in order to find out why. Saving a switch that is going to be ignored
+        // is worse than refusing it, so it is refused here.
+        if (($signRequests || $signMetadata) && ! $store->canSign()) {
+            return back()->with(
+                'error',
+                'There is no usable certificate to sign with yet, so signing cannot be switched on. Generate one '
+                .'below first.',
+            );
+        }
+
+        $settings->sign_requests = $signRequests;
+        $settings->sign_metadata = $signMetadata;
+        $settings->save();
+
+        return back()->with('status', 'Signing settings saved.');
+    }
+}

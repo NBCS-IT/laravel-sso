@@ -1,0 +1,10 @@
+/vendor/
+/.phpunit.cache/
+/build/
+composer.lock
+.phpunit.result.cache
+.php-cs-fixer.cache
+
+# Agent working files: local settings, and design and audit notes that describe
+# this package's weaknesses in more detail than a public repository should.
+/.claude/

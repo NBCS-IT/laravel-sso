@@ -1,0 +1,180 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use NBCSIT\Sso\Models\IdentityProvider;
+use NBCSIT\Sso\Metadata\IdpMetadataSynchroniser;
+use NBCSIT\Sso\Settings\SamlSettings;
+use NBCSIT\Sso\Support\MetadataSyncReport;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\View\View;
+
+/**
+ * Setting an identity provider up from the metadata it publishes, and keeping
+ * it that way.
+ *
+ * Configuring a provider by hand means copying four values and a page of base64
+ * out of somebody else's console, and the certificate is the one people get
+ * wrong. A metadata document is the same information in the form the identity
+ * provider itself publishes, so it is what this application prefers to be given.
+ */
+class SamlMetadataController extends Controller
+{
+    /**
+     * Metadata documents are kilobytes. This is room for a federation file with
+     * a few dozen entities in it and nothing more.
+     */
+    private const MAX_UPLOAD_KILOBYTES = 2048;
+
+    /**
+     * Add a provider from an uploaded document or a metadata URL.
+     */
+    public function store(Request $request, IdpMetadataSynchroniser $synchroniser, SamlSettings $settings): RedirectResponse
+    {
+        // `config('saml.gate')` so the common case needs no edit at all. This is
+        // your controller now — replace it with whatever your application
+        // authorises settings screens by.
+        $this->authorize(config('saml.gate'));
+
+        $validated = $request->validate([
+            // Not `name`: the by-hand form on the same page already owns that
+            // id, and two inputs with one id makes the label point at the
+            // wrong box.
+            'provider_name' => ['required', 'string', 'max:255'],
+            'file' => ['required_without:metadata_url', 'nullable', 'file', 'max:'.self::MAX_UPLOAD_KILOBYTES],
+            'metadata_url' => ['required_without:file', 'nullable', 'url', 'max:255'],
+            'entity_id' => ['nullable', 'string', 'max:255'],
+            'auto_refresh' => ['boolean'],
+        ]);
+
+        $url = $validated['metadata_url'] ?? null;
+        $entityId = ($validated['entity_id'] ?? '') === '' ? null : $validated['entity_id'];
+        $upload = $request->file('file');
+
+        $report = $upload instanceof UploadedFile
+            ? $synchroniser->createFromXml(
+                name: $validated['provider_name'],
+                xml: $upload->getContent(),
+                metadataUrl: $url,
+                autoRefresh: $request->boolean('auto_refresh'),
+                userId: $request->user()?->getKey(),
+                entityId: $entityId,
+            )
+            : $synchroniser->createFromUrl(
+                name: $validated['provider_name'],
+                url: (string) $url,
+                autoRefresh: $request->boolean('auto_refresh'),
+                userId: $request->user()?->getKey(),
+                entityId: $entityId,
+            );
+
+        if (! $report->succeeded()) {
+            return $this->back($report);
+        }
+
+        // The first provider added is almost always the one to use; selecting
+        // it here saves a second round trip through the settings form. Turning
+        // single sign-on *on* stays a separate, deliberate act.
+        if ($settings->default_uuid === null && $report->provider !== null) {
+            $settings->default_uuid = $report->provider->uuid;
+            $settings->save();
+        }
+
+        return redirect()
+            ->route('admin.settings.saml.metadata.show', $report->provider)
+            ->with('status', $report->message)
+            ->with('warnings', $report->warnings);
+    }
+
+    /**
+     * A provider's metadata source, anything a refresh held back, and its
+     * history.
+     */
+    public function show(IdentityProvider $tenant): View
+    {
+        $this->authorize(config('saml.gate'));
+
+        return view('admin.settings.saml-metadata', [
+            'provider' => $tenant,
+            'certificates' => $tenant->signingCertificates(),
+            'pending' => $tenant->pendingChanges(),
+            'events' => $tenant->metadataEvents()->with('user')->latest('id')->paginate(25),
+        ]);
+    }
+
+    /**
+     * Save where this provider's metadata comes from, without fetching it.
+     */
+    public function update(Request $request, IdentityProvider $tenant): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $validated = $request->validate([
+            'metadata_url' => ['nullable', 'url', 'max:255'],
+            'auto_refresh' => ['boolean'],
+        ]);
+
+        $url = ($validated['metadata_url'] ?? '') === '' ? null : $validated['metadata_url'];
+
+        $tenant->metadata_url = $url;
+
+        // Automatic refresh with nothing to refresh from is a switch that does
+        // nothing, and a switch that does nothing is worse than no switch.
+        $tenant->metadata_auto_refresh = $url !== null && $request->boolean('auto_refresh');
+        $tenant->save();
+
+        return back()->with('status', 'Metadata source saved.');
+    }
+
+    /**
+     * Re-read this provider now, from an uploaded document or its stored URL.
+     */
+    public function refresh(Request $request, IdentityProvider $tenant, IdpMetadataSynchroniser $synchroniser): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $request->validate([
+            'file' => ['nullable', 'file', 'max:'.self::MAX_UPLOAD_KILOBYTES],
+        ]);
+
+        $upload = $request->file('file');
+        $userId = $request->user()?->getKey();
+
+        $report = $upload instanceof UploadedFile
+            ? $synchroniser->refreshFromXml($tenant, $upload->getContent(), $userId)
+            : $synchroniser->refreshFromUrl($tenant, $userId);
+
+        return $this->back($report);
+    }
+
+    /**
+     * Write the entity ID or endpoint changes a refresh recorded but would not
+     * apply on its own.
+     */
+    public function applyPending(Request $request, IdentityProvider $tenant, IdpMetadataSynchroniser $synchroniser): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        return $this->back($synchroniser->applyPending($tenant, $request->user()?->getKey()));
+    }
+
+    /**
+     * Keep what is configured and stop being asked about it.
+     */
+    public function discardPending(Request $request, IdentityProvider $tenant, IdpMetadataSynchroniser $synchroniser): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        return $this->back($synchroniser->discardPending($tenant, $request->user()?->getKey()));
+    }
+
+    private function back(MetadataSyncReport $report): RedirectResponse
+    {
+        return back()
+            ->with($report->succeeded() ? 'status' : 'error', $report->message)
+            ->with('warnings', $report->warnings);
+    }
+}

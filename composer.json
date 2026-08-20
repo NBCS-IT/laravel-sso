@@ -1,0 +1,79 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "nbcsit/laravel-sso",
+    "type": "library",
+    "description": "SAML single sign-on for NBCS Laravel applications: identity provider metadata import, certificate rollover, replay protection, group-to-role sync and an audit log.",
+    "keywords": [
+        "laravel",
+        "saml",
+        "saml2",
+        "sso",
+        "nbcs"
+    ],
+    "homepage": "https://github.com/NBCS-IT/laravel-sso",
+    "license": "MIT",
+    "require": {
+        "php": "^8.3",
+        "ext-openssl": "*",
+        "illuminate/console": "^13.0",
+        "illuminate/database": "^13.0",
+        "illuminate/http": "^13.0",
+        "illuminate/support": "^13.0",
+        "nbcsit/laravel-saml2": "^2.4",
+        "ramsey/uuid": "^4.0",
+        "spatie/laravel-permission": "^6.18",
+        "spatie/laravel-settings": "^3.4"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.10",
+        "laravel/pint": "^1.27",
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^11.0",
+        "pestphp/pest": "^4.7",
+        "pestphp/pest-plugin-laravel": "^4.1"
+    },
+    "autoload": {
+        "psr-4": {
+            "NBCSIT\\Sso\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "NBCSIT\\Sso\\Tests\\": "tests/"
+        },
+        "files": [
+            "tests/Fixtures/published/load.php"
+        ]
+    },
+    "scripts": {
+        "test": "vendor/bin/pest",
+        "test-coverage": "vendor/bin/pest --coverage --min=100",
+        "lint": [
+            "vendor/bin/pint",
+            "vendor/bin/phpstan analyse"
+        ]
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "NBCSIT\\Sso\\SsoServiceProvider"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "pestphp/pest-plugin": true,
+            "php-http/discovery": true
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true,
+    "repositories": [
+        {
+            "name": "saml2",
+            "type": "vcs",
+            "url": "https://github.com/NBCS-IT/laravel-saml2"
+        }
+    ]
+}

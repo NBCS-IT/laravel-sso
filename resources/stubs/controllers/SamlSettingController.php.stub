@@ -1,0 +1,247 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use NBCSIT\Sso\Enums\SamlMetadataOutcome;
+use NBCSIT\Sso\Enums\SamlMetadataSource;
+use App\Http\Controllers\Controller;
+use NBCSIT\Sso\Models\IdentityProvider;
+use NBCSIT\Sso\Models\SamlMetadataEvent;
+use NBCSIT\Sso\Settings\SamlSettings;
+use NBCSIT\Sso\Support\Certificate;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+use Illuminate\View\View;
+use Ramsey\Uuid\Uuid;
+use Spatie\Permission\Models\Role;
+
+/**
+ * IdP configuration: the tenant (entity ID, SSO URL, certificate) plus how
+ * assertions map on to local users and roles.
+ */
+class SamlSettingController extends Controller
+{
+    public function edit(SamlSettings $settings): View
+    {
+        // `config('saml.gate')` so the common case needs no edit at all. This is
+        // your controller now — replace it with whatever your application
+        // authorises settings screens by.
+        $this->authorize(config('saml.gate'));
+
+        return view('admin.settings.saml', [
+            'settings' => $settings,
+            'tenants' => IdentityProvider::query()->orderBy('id')->get(),
+            'roles' => Role::query()->orderBy('name')->get(),
+        ]);
+    }
+
+    public function update(Request $request, SamlSettings $settings): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $validated = $request->validate([
+            'enabled' => ['boolean'],
+            'provision_users' => ['boolean'],
+            'sync_groups' => ['boolean'],
+            'email_attribute' => ['required', 'string', 'max:255'],
+            'name_attribute' => ['required', 'string', 'max:255'],
+            'groups_claim' => ['required', 'string', 'max:255'],
+            'default_uuid' => ['nullable', 'uuid', Rule::exists('saml2_tenants', 'uuid')],
+            'group_map' => ['array'],
+            'group_map.*.group' => ['nullable', 'string', 'max:255'],
+            'group_map.*.role' => ['nullable', 'string', 'exists:'.config('permission.table_names.roles').',name'],
+        ]);
+
+        $settings->enabled = $request->boolean('enabled');
+        $settings->provision_users = $request->boolean('provision_users');
+        $settings->sync_groups = $request->boolean('sync_groups');
+        $settings->email_attribute = $validated['email_attribute'];
+        $settings->name_attribute = $validated['name_attribute'];
+        $settings->groups_claim = $validated['groups_claim'];
+        $settings->default_uuid = $validated['default_uuid'] ?? null;
+        $settings->group_role_map = $this->groupRoleMap($request);
+        $settings->save();
+
+        // ------------------------------------------------------------------
+        // Your service provider metadata — the organisation name and URL, and
+        // the technical and support contacts — is NOT the package's to own. It
+        // is read by `config/saml2.php` to build this site's SP metadata
+        // document, and it lives in your own settings class. Uncomment this,
+        // naming that class, and add the matching rules to the validation
+        // above and the fields to the published Blade view.
+        //
+        // $sp->org_name = $validated['org_name'];
+        // $sp->org_url = $validated['org_url'];
+        // $sp->contact_name = $validated['contact_name'];
+        // $sp->contact_email = $validated['contact_email'];
+        // $sp->support_contact_name = $validated['support_contact_name'];
+        // $sp->support_contact_email = $validated['support_contact_email'];
+        // $sp->save();
+        // ------------------------------------------------------------------
+
+        return back()->with('status', 'SAML settings saved.');
+    }
+
+    public function storeTenant(Request $request, SamlSettings $settings): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'idp_entity_id' => ['required', 'string', 'max:255'],
+            'idp_login_url' => ['required', 'url', 'max:255'],
+            'idp_logout_url' => ['nullable', 'url', 'max:255'],
+            'idp_x509_cert' => ['required', 'string'],
+            'relay_state_url' => ['nullable', 'url', 'max:255'],
+            'name_id_format' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $certificate = Certificate::normalise($validated['idp_x509_cert']);
+
+        $attributes = [
+            'uuid' => Uuid::uuid4()->toString(),
+            'key' => $validated['name'],
+            'idp_entity_id' => $validated['idp_entity_id'],
+            'idp_login_url' => $validated['idp_login_url'],
+            'idp_logout_url' => $validated['idp_logout_url'] ?? '',
+            'idp_x509_cert' => $certificate,
+            'idp_x509_cert_multi' => [$certificate],
+            'relay_state_url' => $validated['relay_state_url'] ?? null,
+            'metadata' => [],
+        ];
+
+        // The package's column is NOT NULL with a 'persistent' default, so an
+        // unset format has to be left out of the insert rather than sent as null.
+        if (($validated['name_id_format'] ?? null) !== null) {
+            $attributes['name_id_format'] = $validated['name_id_format'];
+        }
+
+        $tenant = IdentityProvider::query()->create($attributes);
+
+        // Providers added by hand belong in the same history as providers read
+        // from metadata: the question "what changed before sign-in broke?" does
+        // not care which form was used.
+        SamlMetadataEvent::query()->create([
+            'tenant_id' => $tenant->getKey(),
+            'provider_name' => $tenant->key,
+            'source' => SamlMetadataSource::Manual,
+            'outcome' => SamlMetadataOutcome::Created,
+            'metadata_url' => null,
+            'message' => 'Added "'.$tenant->key.'" by hand.',
+            'change_set' => [],
+            'warnings' => [],
+            'user_id' => $request->user()?->getKey(),
+        ]);
+
+        // The first tenant added is almost always the one to use; selecting it
+        // saves a second round trip through the settings form.
+        if ($settings->default_uuid === null) {
+            $settings->default_uuid = $tenant->uuid;
+            $settings->save();
+        }
+
+        return back()->with('status', 'Identity provider added.');
+    }
+
+    /**
+     * Switch one identity provider on or off without removing it.
+     *
+     * Removing a provider is revocation and it is permanent; this is the same
+     * revocation with the row kept, which is what a standby provider or a
+     * suspected-compromised one calls for. Until a provider is switched off
+     * here it can sign people in at its own assertion consumer, whether or not
+     * it is the one `/login` hands off to.
+     */
+    public function toggleTenant(Request $request, IdentityProvider $tenant, SamlSettings $settings): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        $enabled = ! $tenant->enabled;
+
+        $tenant->enabled = $enabled;
+        $tenant->save();
+
+        SamlMetadataEvent::query()->create([
+            'tenant_id' => $tenant->getKey(),
+            'provider_name' => $tenant->key,
+            'source' => SamlMetadataSource::Manual,
+            'outcome' => $enabled ? SamlMetadataOutcome::Updated : SamlMetadataOutcome::Held,
+            'metadata_url' => $tenant->metadata_url,
+            'message' => ($enabled ? 'Switched on ' : 'Switched off ').'"'.$tenant->key.'".',
+            'change_set' => [],
+            'warnings' => [],
+            'user_id' => $request->user()?->getKey(),
+        ]);
+
+        if (! $enabled && $settings->default_uuid === $tenant->uuid) {
+            // The provider /login hands off to is the one that was just
+            // switched off, so leaving it selected would send everybody at a
+            // provider that refuses them.
+            $settings->default_uuid = null;
+            $settings->enabled = false;
+            $settings->save();
+        }
+
+        return back()->with('status', $enabled ? 'Identity provider switched on.' : 'Identity provider switched off.');
+    }
+
+    public function destroyTenant(Request $request, IdentityProvider $tenant, SamlSettings $settings): RedirectResponse
+    {
+        $this->authorize(config('saml.gate'));
+
+        // Written before the delete, and readable after it: the row carries the
+        // provider's own name, so the history still reads even once the tenant
+        // it points at is gone. "Somebody removed the identity provider" is an
+        // answer to a support call.
+        SamlMetadataEvent::query()->create([
+            'tenant_id' => $tenant->getKey(),
+            'provider_name' => $tenant->key,
+            'source' => SamlMetadataSource::Manual,
+            'outcome' => SamlMetadataOutcome::Removed,
+            'metadata_url' => $tenant->metadata_url,
+            'message' => 'Removed "'.$tenant->key.'".',
+            'change_set' => [],
+            'warnings' => [],
+            'user_id' => $request->user()?->getKey(),
+        ]);
+
+        if ($settings->default_uuid === $tenant->uuid) {
+            // Leaving a dangling UUID would send /login to a tenant that no
+            // longer exists, so clear it and fall back to the local form.
+            $settings->default_uuid = null;
+            $settings->enabled = false;
+            $settings->save();
+        }
+
+        $tenant->delete();
+
+        return back()->with('status', 'Identity provider removed.');
+    }
+
+    /**
+     * The repeating group/role rows come in as a list; blank rows are how a
+     * mapping is removed.
+     *
+     * @return array<string, string>
+     */
+    private function groupRoleMap(Request $request): array
+    {
+        $map = [];
+
+        foreach ($request->input('group_map', []) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $group = trim((string) ($row['group'] ?? ''));
+            $role = trim((string) ($row['role'] ?? ''));
+
+            if ($group !== '' && $role !== '') {
+                $map[$group] = $role;
+            }
+        }
+
+        return $map;
+    }
+}
