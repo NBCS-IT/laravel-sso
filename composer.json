@@ -19,7 +19,7 @@
         "illuminate/database": "^13.0",
         "illuminate/http": "^13.0",
         "illuminate/support": "^13.0",
-        "nbcsit/laravel-saml2": "^2.4",
+        "nbcsit/laravel-saml2": "^2.5",
         "ramsey/uuid": "^4.0",
         "spatie/laravel-permission": "^6.18",
         "spatie/laravel-settings": "^3.4"

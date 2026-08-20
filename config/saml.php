@@ -105,17 +105,27 @@ return [
     | `strict_request_binding` ties each response to the AuthnRequest this
     | application sent, which is what closes login CSRF — without it the
     | assertion consumer accepts any validly signed, in-date, correctly
-    | addressed response, whether or not anybody here asked for it. It needs
-    | nbcsit/laravel-saml2 2.5.0 or later, which is the release that keeps the
-    | request ID; it is carried down to that package as
-    | `saml2.strictRequestBinding`. **It refuses IdP-initiated sign-in**, i.e.
-    | the Entra "My Apps" tile, so retire the tile for this application first.
+    | addressed response, whether or not anybody here asked for it. It is
+    | carried down to the vendor package as `saml2.strictRequestBinding`, and
+    | needs nbcsit/laravel-saml2 2.5.0 or later, which is the release that keeps
+    | the request ID.
+    |
+    | On by default. **It refuses IdP-initiated sign-in**, so an application
+    | reached through the Entra "My Apps" tile must either retire the tile or
+    | switch this off.
     |
     | `reject_unsolicited` additionally has the toolkit refuse a response
-    | carrying an InResponseTo it cannot account for. It only takes effect
-    | together with `strict_request_binding`: on its own it refuses every
-    | ordinary sign-in, because Entra answers an AuthnRequest with an
-    | InResponseTo and there would be no stored request ID to match it against.
+    | carrying an InResponseTo it cannot account for, and only takes effect
+    | together with the switch above — on its own it refuses every ordinary
+    | sign-in, because Entra answers an AuthnRequest with an InResponseTo and
+    | there would be no stored request ID to match it against.
+    |
+    | Together they decide what a lost request ID means. That happens when a
+    | session did not survive the round trip to the identity provider: a dropped
+    | cookie, an expired session, a browser that discarded it. With this on, the
+    | sign-in fails and the person tries again. With it off, the binding
+    | silently falls back to accepting any valid response, which is the thing
+    | the binding exists to prevent — so it is on.
     |
     | `allow_unkeyed_assertions` decides what happens when a response arrives
     | with neither an assertion ID nor a message ID, which leaves replay
@@ -127,8 +137,8 @@ return [
 
     'security' => [
         'want_messages_signed' => env('SAML_WANT_MESSAGES_SIGNED', false),
-        'reject_unsolicited' => env('SAML_REJECT_UNSOLICITED', false),
-        'strict_request_binding' => env('SAML_STRICT_REQUEST_BINDING', false),
+        'reject_unsolicited' => env('SAML_REJECT_UNSOLICITED', true),
+        'strict_request_binding' => env('SAML_STRICT_REQUEST_BINDING', true),
         'allow_unkeyed_assertions' => env('SAML_ALLOW_UNKEYED_ASSERTIONS', false),
     ],
 

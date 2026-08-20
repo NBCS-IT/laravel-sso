@@ -439,9 +439,14 @@ working Entra integration:
 | `config('saml.security.*')` | What it does |
 |---|---|
 | `want_messages_signed` | Additionally requires the `<samlp:Response>` envelope to be signed. Switch the enterprise application to "Sign SAML response and assertion" at the IdP **first**. |
-| `strict_request_binding` | Ties a response to the AuthnRequest this application sent, which is what closes login CSRF. Needs `nbcsit/laravel-saml2` **2.5.0 or later**, and is carried down to it as `saml2.strictRequestBinding`. **It refuses IdP-initiated sign-in** — retire the Entra "My Apps" tile for the application first. |
-| `reject_unsolicited` | Additionally has the toolkit refuse a response carrying an `InResponseTo` it cannot account for. Takes effect only together with the switch above, and deliberately so: on its own it rejects every ordinary sign-in, because Entra answers an AuthnRequest with an `InResponseTo` and there would be no stored request ID to match it against. |
 | `allow_unkeyed_assertions` | See **Replay protection** above. |
+
+And two that are **on by default**, which you switch off only for a reason:
+
+| `config('saml.security.*')` | What it does |
+|---|---|
+| `strict_request_binding` | Ties a response to the AuthnRequest this application sent, which is what closes login CSRF — without it the assertion consumer accepts any validly signed, in-date, correctly addressed response, whether or not anybody here asked for it. Carried down to the vendor package as `saml2.strictRequestBinding`. **It refuses IdP-initiated sign-in**, so an application reached through the Entra "My Apps" tile must retire the tile or switch this off. |
+| `reject_unsolicited` | Additionally has the toolkit refuse a response carrying an `InResponseTo` it cannot account for. Takes effect only together with the switch above, and deliberately so: on its own it would reject every ordinary sign-in, because Entra answers an AuthnRequest with an `InResponseTo` and there would be no stored request ID to match it against. Together, the two decide what a **lost request ID** means — a dropped cookie, an expired session. On: the sign-in fails and the person retries. Off: the binding silently falls back to accepting any valid response, which is the thing it exists to prevent. |
 
 Left to the application, and not coverable from here:
 

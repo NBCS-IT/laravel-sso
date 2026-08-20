@@ -211,11 +211,8 @@ describe('the security floor', function () {
     | enterprise application is switched to "Sign SAML response and assertion",
     | so demanding it here would break every integration that has not been.
     */
-    it('leaves envelope signing and unsolicited responses to the application', function () {
-        $security = securitySettingsFor($this->provider);
-
-        expect($security['wantMessagesSigned'])->toBeFalse()
-            ->and($security['rejectUnsolicitedResponsesWithInResponseTo'])->toBeFalse();
+    it('leaves envelope signing to the application', function () {
+        expect(securitySettingsFor($this->provider)['wantMessagesSigned'])->toBeFalse();
     });
 
     it('demands a signed envelope when the application asks for one', function () {
@@ -224,13 +221,14 @@ describe('the security floor', function () {
         expect(securitySettingsFor($this->provider)['wantMessagesSigned'])->toBeTrue();
     });
 
-    it('refuses unsolicited responses when the application asks it to', function () {
-        config([
-            'saml.security.reject_unsolicited' => true,
-            'saml.security.strict_request_binding' => true,
-        ]);
-
+    it('refuses unsolicited responses out of the box', function () {
         expect(securitySettingsFor($this->provider)['rejectUnsolicitedResponsesWithInResponseTo'])->toBeTrue();
+    });
+
+    it('stands aside for an application that still needs IdP-initiated sign-in', function () {
+        config(['saml.security.reject_unsolicited' => false]);
+
+        expect(securitySettingsFor($this->provider)['rejectUnsolicitedResponsesWithInResponseTo'])->toBeFalse();
     });
 
     /*
@@ -258,7 +256,19 @@ describe('the request-binding switch', function () {
         expect(config('saml2.strictRequestBinding'))->toBeTrue();
     });
 
-    it('is off by default, because binding refuses IdP-initiated sign-in', function () {
+    it('is on by default, so login CSRF is closed without anybody opting in', function () {
+        (new SsoServiceProvider(app()))->boot();
+
+        expect(config('saml2.strictRequestBinding'))->toBeTrue();
+    });
+
+    /*
+    | The escape hatch for an application still reached through the Entra "My
+    | Apps" tile: a response nobody asked for has no InResponseTo to match.
+    */
+    it('can be switched off for an application that still needs IdP-initiated sign-in', function () {
+        config(['saml.security.strict_request_binding' => false]);
+
         (new SsoServiceProvider(app()))->boot();
 
         expect(config('saml2.strictRequestBinding'))->toBeFalse();
