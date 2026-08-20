@@ -21,7 +21,18 @@ return new class extends Migration
             //
             // Default true: an existing row is in use until somebody says
             // otherwise, and an upgrade must not lock a site out of itself.
-            $table->boolean('enabled')->default(true)->after('name_id_format');
+            //
+            // No `after()`. Laravel sorts every registered migration path into
+            // one list by filename, so this file runs before the vendor
+            // package's `2020_10_23_072902_add_name_id_format_column`, and on a
+            // database built from empty the column to sit after does not exist
+            // yet: "Unknown column 'name_id_format' in 'saml2_tenants'". The
+            // dev box this was written on never showed it, because there the
+            // vendor package had been installed and migrated first and the
+            // order that produced was install history rather than filename
+            // order. Position within the row is cosmetic; being able to
+            // migrate at all is not.
+            $table->boolean('enabled')->default(true);
         });
     }
 

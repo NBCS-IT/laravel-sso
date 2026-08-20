@@ -178,8 +178,6 @@ describe('migrations', function () {
     });
 
     it('sorts its migrations after the vendor package creates the table', function () {
-        // The vendor's own later migrations only add columns this package does
-        // not reference, so the one that has to come first is the create.
         $create = collect(glob(__DIR__.'/../../vendor/nbcsit/laravel-saml2/database/migrations/*create_saml2_tenants_table.php'))
             ->map(fn (string $path) => basename($path))
             ->sole();
@@ -190,6 +188,67 @@ describe('migrations', function () {
             ->first();
 
         expect(strcmp($ours, $create))->toBeGreaterThan(0);
+    });
+
+    it('never positions a column after one a later vendor migration adds', function () {
+        /*
+        | The create table coming first is necessary and was once assumed to be
+        | sufficient. It is not. Laravel sorts every registered migration path
+        | into one list by filename, so a `2020_01_01_*` file here runs before
+        | the vendor's `2020_10_23_*`, and `->after('name_id_format')` on a
+        | database built from empty asks for a column that does not exist yet.
+        |
+        | An installation that already has the vendor package migrated cannot
+        | show this: there the order is install history, not filename order. It
+        | surfaces only on the next new server, which is the worst place to find
+        | it. Neither can the suite run it into the ground — these tests are on
+        | SQLite, whose grammar ignores column positioning outright. So the
+        | invariant is checked by reading the files rather than by migrating.
+        */
+        $columnsDeclaredIn = function (string $path): array {
+            // Every method taking a single quoted name, less the ones that
+            // reference or modify a column rather than declare one. A blacklist
+            // and not a whitelist of column types on purpose: a type nobody
+            // thought of here should fail loudly, not be waved through.
+            $notDeclarations = [
+                'after', 'dropColumn', 'dropIfExists', 'default', 'index',
+                'unique', 'foreign', 'references', 'on', 'constrained',
+                'comment', 'change', 'nullable', 'charset', 'collation',
+                'storedAs', 'virtualAs', 'from', 'useCurrent', 'table',
+            ];
+
+            preg_match_all(
+                '/->([a-zA-Z_]+)\(\s*\'([^\']+)\'/',
+                (string) file_get_contents($path),
+                $matches,
+                PREG_SET_ORDER,
+            );
+
+            return collect($matches)
+                ->reject(fn (array $m) => in_array($m[1], $notDeclarations, true))
+                ->pluck(2)
+                ->unique()
+                ->all();
+        };
+
+        $vendor = collect(glob(__DIR__.'/../../vendor/nbcsit/laravel-saml2/database/migrations/*.php'))
+            ->mapWithKeys(fn (string $path) => [basename($path) => $columnsDeclaredIn($path)]);
+
+        foreach (glob(__DIR__.'/../../database/migrations/*.php') as $path) {
+            preg_match_all('/->after\(\s*\'([^\']+)\'/', (string) file_get_contents($path), $matches);
+
+            $ours = basename($path);
+
+            // What this file may not lean on: anything introduced by a vendor
+            // migration that Laravel will not have run by the time it does.
+            $tooLate = $vendor
+                ->filter(fn (array $columns, string $name) => strcmp($name, $ours) > 0)
+                ->flatten()
+                ->all();
+
+            expect(array_intersect($matches[1], $tooLate))
+                ->toBe([], "{$ours} positions a column after one a later vendor migration adds.");
+        }
     });
 });
 
