@@ -3,7 +3,7 @@
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
-use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Routing\Router;
 use Illuminate\Session\Middleware\StartSession;
@@ -13,6 +13,7 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Saml2\OneLoginBuilder;
 use NBCSIT\Sso\Contracts\ResolvesSamlUsers;
+use NBCSIT\Sso\Http\Middleware\ExplainCsrfRejection;
 use NBCSIT\Sso\Http\Middleware\RequireSamlAuthentication;
 use NBCSIT\Sso\Models\IdentityProvider;
 use NBCSIT\Sso\Models\SamlAssertion;
@@ -81,13 +82,25 @@ describe('the session middleware', function () {
      * the route as the router finally holds it rather than against the config
      * the default was written to.
      */
-    it('puts a session on the vendor package\'s assertion consumer', function () {
+    it('puts a session on the vendor package\'s assertion consumer, and no CSRF check', function () {
         $route = app(Router::class)->getRoutes()->getByName('saml.acs');
 
-        expect($route)->not->toBeNull()
-            ->and(app(Router::class)->gatherRouteMiddleware($route))
-            ->toContain(StartSession::class)
-            ->not->toContain(VerifyCsrfToken::class);
+        expect($route)->not->toBeNull();
+
+        $gathered = app(Router::class)->gatherRouteMiddleware($route);
+
+        expect($gathered)->toContain(StartSession::class);
+
+        /*
+        | Asserted by inheritance rather than by name. That middleware has been
+        | renamed twice — `VerifyCsrfToken`, then `ValidateCsrfToken`, both of
+        | which survive as subclasses of `PreventRequestForgery` — so naming one
+        | of the aliases passes against a route that does verify a token.
+        */
+        foreach ($gathered as $middleware) {
+            expect(is_string($middleware) && is_a($middleware, PreventRequestForgery::class, true))
+                ->toBeFalse("{$middleware} verifies a CSRF token the identity provider cannot send.");
+        }
     });
 
     it('replaces the vendor default', function () {
@@ -106,12 +119,26 @@ describe('the session middleware', function () {
         expect(config('saml2.routesMiddleware'))->toBe(['saml.session']);
     });
 
-    it('leaves a group an application chose deliberately', function () {
+    it('leaves a group an application chose deliberately, behind the diagnostic', function () {
         config(['saml2.routesMiddleware' => ['my-own-group']]);
 
         (new SsoServiceProvider(app()))->register();
 
-        expect(config('saml2.routesMiddleware'))->toBe(['my-own-group']);
+        expect(config('saml2.routesMiddleware'))->toBe(['saml.explain-csrf', 'my-own-group']);
+    });
+
+    /*
+    | `register()` runs once in an application and repeatedly in this suite, but
+    | a package that grows its own middleware list every time it is registered
+    | is a bug waiting for whoever calls it twice.
+    */
+    it('adds the diagnostic once however often it registers', function () {
+        config(['saml2.routesMiddleware' => ['my-own-group']]);
+
+        (new SsoServiceProvider(app()))->register();
+        (new SsoServiceProvider(app()))->register();
+
+        expect(config('saml2.routesMiddleware'))->toBe(['saml.explain-csrf', 'my-own-group']);
     });
 });
 
@@ -308,6 +335,12 @@ describe('the middleware alias', function () {
         expect(app('router')->getMiddleware())
             ->toHaveKey('saml.auth')
             ->and(app('router')->getMiddleware()['saml.auth'])->toBe(RequireSamlAuthentication::class);
+    });
+
+    it('registers the CSRF diagnostic the vendor routes may be wrapped in', function () {
+        expect(app('router')->getMiddleware())
+            ->toHaveKey('saml.explain-csrf')
+            ->and(app('router')->getMiddleware()['saml.explain-csrf'])->toBe(ExplainCsrfRejection::class);
     });
 });
 

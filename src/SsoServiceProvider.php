@@ -19,6 +19,7 @@ use NBCSIT\Sso\Console\GenerateSpCertificateCommand;
 use NBCSIT\Sso\Console\PromoteSpCertificateCommand;
 use NBCSIT\Sso\Console\RefreshSamlMetadataCommand;
 use NBCSIT\Sso\Contracts\ResolvesSamlUsers;
+use NBCSIT\Sso\Http\Middleware\ExplainCsrfRejection;
 use NBCSIT\Sso\Http\Middleware\RequireSamlAuthentication;
 use NBCSIT\Sso\Listeners\HandleSamlSignIn;
 use NBCSIT\Sso\Listeners\HandleSamlSignOut;
@@ -106,10 +107,18 @@ class SsoServiceProvider extends ServiceProvider
      * keeps it, on the same reasoning as the tenant model — but only the vendor
      * default is replaced, and `HandleSamlSignIn` refuses rather than
      * authenticating into a void if that replacement omits a session.
+     *
+     * The one thing added to a group of the application's own is
+     * {@see ExplainCsrfRejection}, on the outside of it: a group that verifies
+     * CSRF tokens — `['web']`, which is what an earlier generation of this
+     * implementation left behind — cannot ever consume an assertion, and the
+     * 419 it produces instead says the page expired.
      */
     private function registerSessionMiddleware(): void
     {
-        $this->app->make(Router::class)->middlewareGroup('saml.session', [
+        $router = $this->app->make(Router::class);
+
+        $router->middlewareGroup('saml.session', [
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,
             StartSession::class,
@@ -117,10 +126,20 @@ class SsoServiceProvider extends ServiceProvider
             SubstituteBindings::class,
         ]);
 
+        $router->aliasMiddleware('saml.explain-csrf', ExplainCsrfRejection::class);
+
         $configured = config('saml2.routesMiddleware');
 
         if ($configured === null || $configured === []) {
             config(['saml2.routesMiddleware' => ['saml.session']]);
+
+            return;
+        }
+
+        $configured = (array) $configured;
+
+        if (! in_array('saml.explain-csrf', $configured, true)) {
+            config(['saml2.routesMiddleware' => ['saml.explain-csrf', ...$configured]]);
         }
     }
 

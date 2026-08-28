@@ -109,6 +109,29 @@ Set `saml2.routesMiddleware` yourself and this package leaves it alone — but w
 better start a session, because `HandleSamlSignIn` throws rather than authenticating a user into a
 session that is about to be discarded.
 
+**`routesMiddleware => ['web']` is the expensive mistake, and its symptom is a 419.** `web` verifies
+CSRF tokens; the identity provider posts to `/saml2/{uuid}/acs` from its own origin and has no token
+to send, so **every sign-in ends on a page saying the page expired**, having authenticated nobody.
+Nothing about that message points at the setting that caused it.
+
+Two things matter here for anyone migrating an application that already has a `config/saml2.php`:
+**`vendor:publish` does not overwrite a file that already exists**, so a project carrying `['web']`
+from an earlier implementation keeps it silently — see [`docs/adoption.md`](docs/adoption.md).
+
+Where you have set the value yourself, this package wraps whatever you set in one middleware of its
+own, `saml.explain-csrf`, which turns that 419 into an exception naming the setting. It converts a
+rejection rather than reading your middleware list, so an application that has legitimately excluded
+`saml2/*` from token verification never hears from it. It cannot see a CSRF check applied globally in
+`bootstrap/app.php` — that runs outside route middleware — and it is not applied at all when the
+`saml.session` default is in force, which has nothing to explain.
+
+A health check for this **cannot be written as a request test**: Laravel skips CSRF verification
+while running tests, so a POST to the assertion consumer succeeds whatever the route is configured
+to do. Assert against the route's gathered middleware, and assert **by inheritance from
+`Illuminate\Foundation\Http\Middleware\PreventRequestForgery`** — that class has been renamed twice
+(`VerifyCsrfToken`, then `ValidateCsrfToken`, both surviving as subclasses), and a check naming one
+of the aliases passes against a route that does verify a token.
+
 ---
 
 ## The one thing you must not skip
@@ -246,6 +269,44 @@ force.
 and the others sign with something else — which fails for about half of all sign-ins and looks
 nothing like a certificate problem. Point `saml.certificate.disk` at shared storage, or bake the
 files into the image.
+
+#### The certificate directory has two writers
+
+The store writes with `['visibility' => 'private']`, which on a local disk means `0600` files in a
+`0700` directory owned by whoever wrote them. That is right for a private key and wrong for most
+deployments, because **two accounts use that directory**: the web server user, and the account that
+runs `artisan` and the cron.
+
+Generate the first certificate from a terminal with `saml:generate-certificate --primary` and the
+files land owned by the deploying account with no group access. The web server can then neither read
+the key — so the certificate screen reports that this application has nothing to sign with, which is
+true from where it is standing — nor write a new one, so generating from the screen fails as well.
+Nothing about this is visible from a terminal, because the account looking is the account that owns
+the files.
+
+Both halves of the fix are needed:
+
+```php
+// config/filesystems.php — otherwise every regenerate clamps the mode back
+'local' => [
+    // ...
+    'permissions' => [
+        'file' => ['public' => 0644, 'private' => 0660],
+        'dir' => ['public' => 0755, 'private' => 0770],
+    ],
+],
+```
+
+```bash
+# Group ownership, with setgid so new files inherit it
+chgrp -R www-data storage/app/private/certs
+chmod 2770 storage/app/private/certs
+```
+
+If you write your own diagnostics around this: Laravel's default skeleton ships the `local` disk
+with `'throw' => false`, so a permission failure comes back from `put()` as a `false` return rather
+than an exception. A writability check built as `put()` inside a `try`/`catch` passes on a directory
+it cannot write to. Read the return value — which is what this package's store does.
 
 ### Signing what this application sends
 
