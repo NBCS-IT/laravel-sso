@@ -11,6 +11,33 @@
     @endif
 
     <div class="max-w-3xl space-y-6">
+        {{-- The controllers report only by flashing: `status` when an action
+             worked, `error` when it did not, `warnings` where it worked and had
+             something to say. Keep all three wherever this is restyled — a
+             failure with nowhere to land redirects to a page identical to the
+             one that was submitted, and reads as a button that does nothing. --}}
+        @if (session('status'))
+            <div class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900">
+                {{ session('status') }}
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+                {{ session('error') }}
+            </div>
+        @endif
+
+        @if (session('warnings'))
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                <ul class="list-disc space-y-1 pl-5">
+                    @foreach (session('warnings') as $warning)
+                        <li>{{ $warning }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         <div class="rounded-lg border border-slate-200 bg-white p-6">
             <h2 class="font-semibold">Identity providers</h2>
             <p class="mt-1 text-sm text-slate-600">

@@ -195,3 +195,25 @@ describe('the signing switches', function () {
         expect(app(SamlSettings::class)->sign_metadata)->toBeFalse();
     });
 });
+
+/*
+| Every action on this screen reports by flashing and redirecting back, so a
+| view with nowhere for a flash to land makes a refused generate — the
+| directory permissions being the usual reason — indistinguishable from a
+| button that does nothing.
+*/
+describe('what the controller flashes', function () {
+    it('renders the status, the error and the warnings on the certificate screen', function () {
+        $this->actingAs($this->admin)
+            ->withSession([
+                'status' => 'A rollover certificate was generated.',
+                'error' => 'The certificate could not be written.',
+                'warnings' => ['The certificate in use expires in 12 days.'],
+            ])
+            ->get(route('admin.settings.saml.certificate.show'))
+            ->assertOk()
+            ->assertSee('A rollover certificate was generated.')
+            ->assertSee('The certificate could not be written.')
+            ->assertSee('The certificate in use expires in 12 days.');
+    });
+});

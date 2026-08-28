@@ -251,3 +251,19 @@ describe('removing a provider', function () {
             ->and($settings->enabled)->toBeTrue();
     });
 });
+
+describe('what the controller flashes', function () {
+    it('renders the status, the error and the warnings on the settings screen', function () {
+        $this->actingAs($this->admin)
+            ->withSession([
+                'status' => 'Identity provider added.',
+                'error' => 'That provider could not be removed.',
+                'warnings' => ['The document describes more than one provider.'],
+            ])
+            ->get(route('admin.settings.saml.edit'))
+            ->assertOk()
+            ->assertSee('Identity provider added.')
+            ->assertSee('That provider could not be removed.')
+            ->assertSee('The document describes more than one provider.');
+    });
+});

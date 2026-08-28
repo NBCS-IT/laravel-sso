@@ -263,3 +263,21 @@ describe('held changes', function () {
             ->assertSessionHas('error');
     });
 });
+
+describe('what the controller flashes', function () {
+    it('renders the status, the error and the warnings on the provider\'s page', function () {
+        $provider = providerFromMetadata();
+
+        $this->actingAs($this->admin)
+            ->withSession([
+                'status' => 'Metadata refreshed.',
+                'error' => 'The document could not be fetched.',
+                'warnings' => ['The document expired last week.'],
+            ])
+            ->get(route('admin.settings.saml.metadata.show', $provider))
+            ->assertOk()
+            ->assertSee('Metadata refreshed.')
+            ->assertSee('The document could not be fetched.')
+            ->assertSee('The document expired last week.');
+    });
+});

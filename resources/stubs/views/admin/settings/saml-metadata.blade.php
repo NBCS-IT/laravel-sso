@@ -5,6 +5,32 @@
     </x-slot:actions>
 
     <div class="max-w-3xl space-y-6">
+        {{-- The controllers report only by flashing: `status` when an action
+             worked, `error` when it did not, `warnings` where it worked and had
+             something to say — a refresh that succeeded on a document with
+             something odd in it. Keep all three wherever this is restyled. --}}
+        @if (session('status'))
+            <div class="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900">
+                {{ session('status') }}
+            </div>
+        @endif
+
+        @if (session('error'))
+            <div class="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900">
+                {{ session('error') }}
+            </div>
+        @endif
+
+        @if (session('warnings'))
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+                <ul class="list-disc space-y-1 pl-5">
+                    @foreach (session('warnings') as $warning)
+                        <li>{{ $warning }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         @if ($pending)
             <div class="rounded-lg border border-amber-300 bg-amber-50 p-6">
                 <h2 class="font-semibold text-amber-900">Changes waiting for you</h2>
