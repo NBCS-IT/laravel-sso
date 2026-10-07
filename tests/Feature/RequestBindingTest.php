@@ -128,6 +128,31 @@ describe('at the assertion consumer', function () {
         expect(refusalReason())->toContain('does not match the ID of the AuthNRequest sent by the SP: ONELOGIN_expected');
     });
 
+    /*
+    | IdP-initiated sign-in, and login CSRF built from it: a response nobody
+    | asked for carries no InResponseTo, and the toolkit compares nothing when
+    | it is handed no request ID. So it is refused here, before the toolkit.
+    */
+    it('refuses a response when this session started no sign-in', function () {
+        config(['saml.security.strict_request_binding' => true]);
+
+        postToAssertionConsumer($this->provider, unsignedResponse(null));
+
+        expect(refusalReason())->toStartWith('No sign-in request is pending in this session');
+    });
+
+    /*
+    | What a session cookie withheld on the identity provider's cross-site POST
+    | looks like: an answer, to a request this session has no record of.
+    */
+    it('refuses a response to a request this session has no record of', function () {
+        config(['saml.security.strict_request_binding' => true]);
+
+        postToAssertionConsumer($this->provider, unsignedResponse('ONELOGIN_lost'));
+
+        expect(refusalReason())->toStartWith('No sign-in request is pending in this session');
+    });
+
     it('refuses a response nobody asked for while a request is pending', function () {
         config(['saml.security.strict_request_binding' => true]);
 
@@ -162,7 +187,8 @@ describe('at the assertion consumer', function () {
         // Refused all the same — it is unsigned — but not over InResponseTo,
         // which is the toolkit saying it was given no request to compare.
         expect(refusalReason())->not->toBeEmpty()
-            ->and(refusalReason())->not->toContain('InResponseTo');
+            ->and(refusalReason())->not->toContain('InResponseTo')
+            ->and(refusalReason())->not->toContain('No sign-in request is pending');
     });
 
     /*
@@ -194,6 +220,15 @@ describe('the handler', function () {
         $this->handler->expectResponseTo('ONELOGIN_abc123');
 
         expect($this->handler->acs())->toBeNull();
+    });
+
+    it('refuses without asking the toolkit when told to expect a request that was never sent', function () {
+        $this->toolkit->shouldNotReceive('processResponse');
+
+        $this->handler->expectResponseTo(null);
+
+        expect($this->handler->acs())->toHaveKey('error')
+            ->and($this->handler->getLastErrorReason())->toStartWith('No sign-in request is pending');
     });
 
     it('forwards nothing when told nothing', function () {

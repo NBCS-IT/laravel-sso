@@ -91,6 +91,13 @@ this package:
    `saml.security.strict_request_binding`, which this package has always used, and
    `saml.security.want_logout_signed` (`SAML_WANT_LOGOUT_SIGNED`, on by default). An application
    that had switched `SAML2_WANT_LOGOUT_SIGNED` off finds it on again until it sets the new name.
+5. **Expect the "My Apps" tile to stop working where binding is on.** The documentation has always
+   said `strict_request_binding` refuses IdP-initiated sign-in, and on the fork it did not: a
+   response arriving at a session with no request pending was handed to the toolkit with no request
+   ID, and the toolkit compares nothing in that case — so a response with no `InResponseTo`, which is
+   what the tile sends, was accepted. That gap is also the login CSRF the binding exists to close,
+   and it is closed now. An application still reached through the tile must switch the binding off,
+   as the documentation already said.
 
 Nothing else changes: same routes, same tables, same tenant UUIDs. New tenants created through the
 vendor's `saml2:create-tenant` command get a UUIDv7 rather than a v4; both are 36 characters.
@@ -535,7 +542,7 @@ And three that are **on by default**, which you switch off only for a reason:
 | `config('saml.security.*')` | What it does |
 |---|---|
 | `strict_request_binding` | Ties a response to the AuthnRequest this application sent, which is what closes login CSRF — without it the assertion consumer accepts any validly signed, in-date, correctly addressed response, whether or not anybody here asked for it. Implemented by this package's controller, which is bound over the vendor's: it keeps the AuthnRequest's ID in the session at login and hands it to the toolkit at the assertion consumer. **It refuses IdP-initiated sign-in**, so an application reached through the Entra "My Apps" tile must retire the tile or switch this off. |
-| `reject_unsolicited` | Additionally has the toolkit refuse a response carrying an `InResponseTo` it cannot account for. Takes effect only together with the switch above, and deliberately so: on its own it would reject every ordinary sign-in, because Entra answers an AuthnRequest with an `InResponseTo` and there would be no stored request ID to match it against. Together, the two decide what a **lost request ID** means — a dropped cookie, an expired session. On: the sign-in fails and the person retries. Off: the binding silently falls back to accepting any valid response, which is the thing it exists to prevent. |
+| `reject_unsolicited` | Has the toolkit refuse a response carrying an `InResponseTo` it cannot account for. With binding on, such a response has already been refused before the toolkit sees it — a response is accepted only as the answer to a request this session has a record of, so a **lost request ID** (a dropped cookie, an expired session) fails the sign-in and the person retries. This is the second line behind that, kept on so that it still is. Takes effect only together with the switch above, and deliberately so: on its own it would reject every ordinary sign-in, because Entra answers an AuthnRequest with an `InResponseTo` and there would be no stored request ID to match it against. |
 | `want_logout_signed` | Refuses a logout message that carries no signature. The toolkit only demands one when `want_messages_signed` is on, and everything else it checks at `/saml2/{uuid}/sls` is satisfiable from public values — so without this a crafted link or an `<img>` tag ends the session of whichever browser loads it. Entra ID signs its logout messages. A logout POSTed to that route is refused too: the toolkit reads only the HTTP-Redirect binding, so it could not have verified one. |
 
 One more, which is not configurable: **`RelayState` and the logout route's `returnTo` are held to this
@@ -567,7 +574,8 @@ cross-site POST — so the assertion consumer runs on a brand-new, empty session
 stored at login is not there, and the sign-in is refused with:
 
 ```
-The Response has an InResponseTo attribute: ONELOGIN_… while no InResponseTo was expected
+No sign-in request is pending in this session: either it was not started here, or the session
+cookie did not survive the round trip to the identity provider
 ```
 
 That message is the binding working correctly: a response to a request, with no record of the

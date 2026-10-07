@@ -22,6 +22,11 @@ use Slides\Saml2\Auth as VendorAuth;
 class Auth extends VendorAuth
 {
     /**
+     * Whether the next response must answer a request this session sent.
+     */
+    private bool $bound = false;
+
+    /**
      * The ID of the AuthnRequest the next response must answer, when one is
      * expected at all.
      */
@@ -41,9 +46,16 @@ class Auth extends VendorAuth
      * sent. Without it the assertion consumer accepts any validly signed,
      * in-date, correctly addressed response, whether or not anybody here asked
      * for it — which is login CSRF.
+     *
+     * Null means this session sent no request, and then nothing it receives is
+     * an answer: the response is refused before the toolkit sees it. Handing
+     * the toolkit null instead would not do, because to the toolkit null means
+     * "check nothing", and a response that carries no InResponseTo — which is
+     * exactly what an IdP-initiated one looks like — would be accepted.
      */
     public function expectResponseTo(?string $requestId): void
     {
+        $this->bound = true;
         $this->expectedRequestId = $requestId;
     }
 
@@ -59,6 +71,13 @@ class Auth extends VendorAuth
     public function acs(): ?array
     {
         $this->refusal = null;
+
+        if ($this->bound && $this->expectedRequestId === null) {
+            return $this->refuse(
+                'No sign-in request is pending in this session: either it was not started here, '
+                .'or the session cookie did not survive the round trip to the identity provider',
+            );
+        }
 
         $this->base->processResponse($this->expectedRequestId);
 
