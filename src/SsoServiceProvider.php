@@ -11,14 +11,11 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-use NBCSIT\Saml2\Events\SignedIn;
-use NBCSIT\Saml2\Events\SignedOut;
-use NBCSIT\Saml2\Models\Tenant;
-use NBCSIT\Saml2\OneLoginBuilder;
 use NBCSIT\Sso\Console\GenerateSpCertificateCommand;
 use NBCSIT\Sso\Console\PromoteSpCertificateCommand;
 use NBCSIT\Sso\Console\RefreshSamlMetadataCommand;
 use NBCSIT\Sso\Contracts\ResolvesSamlUsers;
+use NBCSIT\Sso\Http\Controllers\Saml2Controller;
 use NBCSIT\Sso\Http\Middleware\ExplainCsrfRejection;
 use NBCSIT\Sso\Http\Middleware\RequireSamlAuthentication;
 use NBCSIT\Sso\Listeners\HandleSamlSignIn;
@@ -27,6 +24,11 @@ use NBCSIT\Sso\Models\IdentityProvider;
 use NBCSIT\Sso\Models\SamlAssertion;
 use NBCSIT\Sso\Settings\SamlSettings;
 use NBCSIT\Sso\Users\EloquentUserResolver;
+use Slides\Saml2\Events\SignedIn;
+use Slides\Saml2\Events\SignedOut;
+use Slides\Saml2\Http\Controllers\Saml2Controller as VendorSaml2Controller;
+use Slides\Saml2\Models\Tenant;
+use Slides\Saml2\OneLoginBuilder;
 use Spatie\LaravelSettings\SettingsContainer;
 
 /**
@@ -38,6 +40,13 @@ use Spatie\LaravelSettings\SettingsContainer;
  */
 class SsoServiceProvider extends ServiceProvider
 {
+    /**
+     * The tenant model's name in `nbcsit/laravel-saml2`, the fork this package
+     * depended on before `scaler-tech/laravel-saml2` took the vendor package
+     * over. A string rather than a class reference: the class is gone.
+     */
+    private const FORKED_TENANT_MODEL = 'NBCSIT\\Saml2\\Models\\Tenant';
+
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/saml.php', 'saml');
@@ -47,6 +56,12 @@ class SsoServiceProvider extends ServiceProvider
         // effect at all — and it is what carries a tenant's full certificate
         // list to the toolkit during a key rollover.
         $this->app->bind(OneLoginBuilder::class, MultiCertificateOneLoginBuilder::class);
+
+        // The same trick for the vendor's routes, which name their controller
+        // by class: Laravel resolves it through the container, so this is what
+        // carries request binding and the checked logout `returnTo` onto routes
+        // this package does not register.
+        $this->app->bind(VendorSaml2Controller::class, Saml2Controller::class);
 
         // `bindIf`, so an application that binds its own resolver wins whichever
         // order the providers happen to load in.
@@ -58,7 +73,6 @@ class SsoServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->bootTenantModel();
-        $this->bootRequestBinding();
         $this->bootSettings();
 
         Event::listen(SignedIn::class, HandleSamlSignIn::class);
@@ -194,33 +208,19 @@ class SsoServiceProvider extends ServiceProvider
      * own keeps it — but the vendor default is replaced, because a login that
      * resolves a different model from the admin screens is a bug that shows up
      * only during a certificate rollover.
+     *
+     * The fork of the vendor package this used to depend on shipped the same
+     * model under its own namespace, and an application that published its
+     * `config/saml2.php` still names that class — which no longer exists. It is
+     * the vendor default by another name, so it is replaced too.
      */
     private function bootTenantModel(): void
     {
         $configured = config('saml2.tenantModel');
 
-        if ($configured === null || $configured === Tenant::class) {
+        if ($configured === null || $configured === Tenant::class || $configured === self::FORKED_TENANT_MODEL) {
             config(['saml2.tenantModel' => IdentityProvider::class]);
         }
-    }
-
-    /**
-     * Carry the request-binding switch down to the vendor package.
-     *
-     * The binding itself lives there — it is the vendor controller that keeps
-     * the AuthnRequest's ID in the session and hands it back at the assertion
-     * consumer. The switch lives here, because `config/saml.php` is where an
-     * administrator looks for what this package demands of an identity
-     * provider, and two switches meaning one thing is how they end up
-     * disagreeing.
-     *
-     * The vendor package before 2.5.0 does not read this key and does not bind
-     * anything; see {@see MultiCertificateOneLoginBuilder::applySecurityFloor()},
-     * which is what stops that combination locking everybody out.
-     */
-    private function bootRequestBinding(): void
-    {
-        config(['saml2.strictRequestBinding' => config()->boolean('saml.security.strict_request_binding', false)]);
     }
 
     private function bootPublishes(): void

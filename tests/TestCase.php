@@ -6,13 +6,13 @@ use App\Http\Controllers\Admin\SamlCertificateController;
 use App\Http\Controllers\Admin\SamlMetadataController;
 use App\Http\Controllers\Admin\SamlSettingController;
 use Illuminate\Contracts\Config\Repository;
-use NBCSIT\Saml2\ServiceProvider;
 use NBCSIT\Sso\Metadata\HostResolver;
 use NBCSIT\Sso\SsoServiceProvider;
 use NBCSIT\Sso\Tests\Fixtures\ApplicationServiceProvider;
 use NBCSIT\Sso\Tests\Fixtures\FakeHostResolver;
 use NBCSIT\Sso\Tests\Fixtures\User;
 use Orchestra\Testbench\TestCase as BaseTestCase;
+use Slides\Saml2\ServiceProvider;
 use Spatie\LaravelSettings\LaravelSettingsServiceProvider;
 use Spatie\Permission\PermissionServiceProvider;
 
@@ -86,7 +86,7 @@ abstract class TestCase extends BaseTestCase
             // over the keys it owns; Testbench calls this after registration, and
             // a plain `set()` would undo that write.
             $config->set('saml2', array_merge(
-                require __DIR__.'/../vendor/nbcsit/laravel-saml2/config/saml2.php',
+                require __DIR__.'/../vendor/scaler-tech/laravel-saml2/config/saml2.php',
                 (array) $config->get('saml2', []),
             ));
         });

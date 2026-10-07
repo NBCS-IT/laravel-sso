@@ -10,9 +10,8 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-use NBCSIT\Saml2\Models\Tenant;
-use NBCSIT\Saml2\OneLoginBuilder;
 use NBCSIT\Sso\Contracts\ResolvesSamlUsers;
+use NBCSIT\Sso\Http\Controllers\Saml2Controller;
 use NBCSIT\Sso\Http\Middleware\ExplainCsrfRejection;
 use NBCSIT\Sso\Http\Middleware\RequireSamlAuthentication;
 use NBCSIT\Sso\Models\IdentityProvider;
@@ -22,10 +21,17 @@ use NBCSIT\Sso\Settings\SamlSettings;
 use NBCSIT\Sso\SsoServiceProvider;
 use NBCSIT\Sso\Tests\Fixtures\ApplicationSettings;
 use NBCSIT\Sso\Users\EloquentUserResolver;
+use Slides\Saml2\Http\Controllers\Saml2Controller as VendorSaml2Controller;
+use Slides\Saml2\Models\Tenant;
+use Slides\Saml2\OneLoginBuilder;
 
 describe('the container bindings', function () {
     it('answers the vendor middleware with the multi-certificate builder', function () {
         expect(app(OneLoginBuilder::class))->toBeInstanceOf(MultiCertificateOneLoginBuilder::class);
+    });
+
+    it('answers the vendor routes with this package\'s controller', function () {
+        expect(app(VendorSaml2Controller::class))->toBeInstanceOf(Saml2Controller::class);
     });
 
     it('resolves users through the Eloquent resolver by default', function () {
@@ -50,6 +56,18 @@ describe('the tenant model', function () {
 
     it('replaces the vendor default', function () {
         config(['saml2.tenantModel' => Tenant::class]);
+
+        (new SsoServiceProvider(app()))->boot();
+
+        expect(config('saml2.tenantModel'))->toBe(IdentityProvider::class);
+    });
+
+    /*
+    | What an application that published `config/saml2.php` from the fork still
+    | says. That class no longer exists, so leaving it would fail every sign-in.
+    */
+    it('replaces the fork\'s name for the vendor default', function () {
+        config(['saml2.tenantModel' => 'NBCSIT\Saml2\Models\Tenant']);
 
         (new SsoServiceProvider(app()))->boot();
 
@@ -205,7 +223,7 @@ describe('migrations', function () {
     });
 
     it('sorts its migrations after the vendor package creates the table', function () {
-        $create = collect(glob(__DIR__.'/../../vendor/nbcsit/laravel-saml2/database/migrations/*create_saml2_tenants_table.php'))
+        $create = collect(glob(__DIR__.'/../../vendor/scaler-tech/laravel-saml2/database/migrations/*create_saml2_tenants_table.php'))
             ->map(fn (string $path) => basename($path))
             ->sole();
 
@@ -258,7 +276,7 @@ describe('migrations', function () {
                 ->all();
         };
 
-        $vendor = collect(glob(__DIR__.'/../../vendor/nbcsit/laravel-saml2/database/migrations/*.php'))
+        $vendor = collect(glob(__DIR__.'/../../vendor/scaler-tech/laravel-saml2/database/migrations/*.php'))
             ->mapWithKeys(fn (string $path) => [basename($path) => $columnsDeclaredIn($path)]);
 
         foreach (glob(__DIR__.'/../../database/migrations/*.php') as $path) {

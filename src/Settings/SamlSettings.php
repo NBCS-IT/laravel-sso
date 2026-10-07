@@ -2,9 +2,9 @@
 
 namespace NBCSIT\Sso\Settings;
 
-use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Sso\MultiCertificateOneLoginBuilder;
 use Ramsey\Uuid\Uuid;
+use Slides\Saml2\Models\Tenant;
 use Spatie\LaravelSettings\Settings;
 
 /**

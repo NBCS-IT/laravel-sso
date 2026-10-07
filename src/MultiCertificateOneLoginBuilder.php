@@ -2,13 +2,14 @@
 
 namespace NBCSIT\Sso;
 
-use NBCSIT\Saml2\Auth as Saml2Auth;
-use NBCSIT\Saml2\OneLoginBuilder;
 use NBCSIT\Sso\Certificates\SpCertificateStore;
 use NBCSIT\Sso\Models\IdentityProvider;
+use NBCSIT\Sso\Saml2\Auth;
 use NBCSIT\Sso\Settings\SamlSettings;
 use OneLogin\Saml2\Auth as OneLoginAuth;
 use OneLogin\Saml2\Utils as OneLoginUtils;
+use Slides\Saml2\Auth as VendorAuth;
+use Slides\Saml2\OneLoginBuilder;
 
 /**
  * The package's builder, taught about key rollover.
@@ -31,7 +32,8 @@ use OneLogin\Saml2\Utils as OneLoginUtils;
 class MultiCertificateOneLoginBuilder extends OneLoginBuilder
 {
     /**
-     * Mirrors the parent, with the certificate list added. Overridden whole
+     * Mirrors the parent, with the certificate list added and this package's
+     * {@see Auth} constructed in place of the vendor's. Overridden whole
      * because the parent builds the config inside the closure it registers and
      * offers nothing smaller to hook.
      */
@@ -68,9 +70,12 @@ class MultiCertificateOneLoginBuilder extends OneLoginBuilder
             return new OneLoginAuth($config);
         });
 
+        // This package's handler, under the vendor's name: the vendor
+        // controller, its facade and every listener ask for it by that name,
+        // and what they get is the one that binds requests and checks logouts.
         $this->app->singleton(
-            Saml2Auth::class,
-            fn () => new Saml2Auth($this->app->make('OneLogin_Saml2_Auth'), $this->tenant),
+            VendorAuth::class,
+            fn () => new Auth($this->app->make('OneLogin_Saml2_Auth'), $this->tenant),
         );
     }
 
@@ -204,11 +209,11 @@ class MultiCertificateOneLoginBuilder extends OneLoginBuilder
         // Follows the binding switch rather than standing alone, and that
         // coupling is load-bearing. The toolkit refuses a response carrying an
         // InResponseTo whenever it was given no request ID to match it against
-        // — and until the vendor package binds request IDs, it never is. On its
-        // own this setting therefore refuses every ordinary sign-in, because
-        // Entra ID answers an AuthnRequest with an InResponseTo. Tied to the
-        // switch that turns the binding on, it means what it says: refuse a
-        // response nobody asked for.
+        // — and with the binding off, it never is. On its own this setting
+        // therefore refuses every ordinary sign-in, because Entra ID answers an
+        // AuthnRequest with an InResponseTo. Tied to the switch that turns the
+        // binding on, it means what it says: refuse a response nobody asked
+        // for.
         $config['security']['rejectUnsolicitedResponsesWithInResponseTo'] =
             config()->boolean('saml.security.reject_unsolicited', false)
             && config()->boolean('saml.security.strict_request_binding', false);

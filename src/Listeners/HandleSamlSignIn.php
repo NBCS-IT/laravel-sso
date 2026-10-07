@@ -3,11 +3,11 @@
 namespace NBCSIT\Sso\Listeners;
 
 use Illuminate\Support\Carbon;
-use NBCSIT\Saml2\Events\SignedIn;
-use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Sso\Exceptions\MissingSamlSession;
 use NBCSIT\Sso\SamlAuthenticator;
 use NBCSIT\Sso\Support\SamlIdentity;
+use Slides\Saml2\Events\SignedIn;
+use Slides\Saml2\Models\Tenant;
 use Throwable;
 
 /**

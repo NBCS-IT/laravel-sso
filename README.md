@@ -4,9 +4,11 @@ SAML single sign-on for NBCS Laravel applications: identity provider metadata im
 rollover handling, replay protection, group-to-role synchronisation, an audit log, and publishable
 admin screens for all of it.
 
-It sits on top of [`nbcsit/laravel-saml2`](https://github.com/NBCS-IT/laravel-saml2), which speaks
-the protocol. This package is everything above that — the part that keeps a provider's configuration
-current and turns an assertion into a signed-in local user.
+It sits on top of [`scaler-tech/laravel-saml2`](https://github.com/scaler-tech/laravel-saml2), which
+speaks the protocol. This package is everything above that — the part that keeps a provider's
+configuration current and turns an assertion into a signed-in local user — plus three security checks
+the vendor package does not make, which this package applies to the vendor's own routes. See
+**Security**.
 
 ---
 
@@ -29,7 +31,7 @@ repointing the entity ID at somewhere new.
 |---|---|
 | PHP | 8.3+ |
 | Laravel | 13.x |
-| `nbcsit/laravel-saml2` | ^2.4 |
+| `scaler-tech/laravel-saml2` | ^2.7.2 |
 | `spatie/laravel-permission` | ^6.18 — **required**, not optional |
 | `spatie/laravel-settings` | ^3.4 — **required**, not optional |
 | `ext-openssl` | Reads identity provider certificates, and mints this application's own |
@@ -39,12 +41,11 @@ of abstraction that would have had exactly one implementation in every applicati
 
 ## Installation
 
-Both this package and the vendor SAML package are private, so both need a repository entry:
+This package is private, so it needs a repository entry. The vendor SAML package is on Packagist.
 
 ```json
 "repositories": [
-    { "name": "saml2", "type": "vcs", "url": "https://github.com/NBCS-IT/laravel-saml2" },
-    { "name": "sso",   "type": "vcs", "url": "https://github.com/NBCS-IT/laravel-sso" }
+    { "name": "sso", "type": "vcs", "url": "https://github.com/NBCS-IT/laravel-sso" }
 ]
 ```
 
@@ -55,7 +56,7 @@ php artisan vendor:publish --tag=saml-config      # config/saml.php
 php artisan vendor:publish --tag=saml-migrations  # the users-table columns (skip if you have them)
 php artisan vendor:publish --tag=saml-admin       # the three controllers and three Blade views
 
-php artisan vendor:publish --provider="NBCSIT\Saml2\ServiceProvider"   # config/saml2.php
+php artisan vendor:publish --provider="Slides\Saml2\ServiceProvider"   # config/saml2.php
 php artisan migrate
 ```
 
@@ -66,6 +67,33 @@ service provider and leaves the rest of the file alone.
 
 **If your application already has a SAML implementation, stop here and read
 [`docs/adoption.md`](docs/adoption.md) instead.** Adoption is a data migration, not an install.
+
+### Upgrading from a version that required `nbcsit/laravel-saml2`
+
+Earlier versions of this package depended on NBCS IT's fork of the archived `24slides/laravel-saml2`.
+The fork existed to carry three security fixes; those now live in this package, and the vendor
+package is the maintained `scaler-tech/laravel-saml2`, used unmodified. For an application already on
+this package:
+
+1. **Swap the dependency.** Remove `nbcsit/laravel-saml2` and its `repositories` entry from
+   `composer.json`, then `composer update nbcsit/laravel-sso nbcsit/laravel-saml2`. Composer brings in
+   `scaler-tech/laravel-saml2` as this package's requirement.
+2. **Rename the namespace in your own code.** The fork moved the vendor classes to `NBCSIT\Saml2`;
+   the vendor package has them under `Slides\Saml2`, as it always did. `grep -rn 'NBCSIT\\Saml2' app
+   config routes` finds them — event listeners, facade aliases, `vendor:publish --provider` lines in
+   scripts.
+3. **Leave `saml2.tenantModel` alone.** A published `config/saml2.php` from the fork names
+   `NBCSIT\Saml2\Models\Tenant`, which no longer exists. This package treats that name as the vendor
+   default and replaces it, exactly as it does `Slides\Saml2\Models\Tenant`. Correcting the file is
+   tidy, not necessary.
+4. **Move the fork's two switches.** `strictRequestBinding` and `wantLogoutSigned` in
+   `config/saml2.php` are no longer read by anything. Their replacements are
+   `saml.security.strict_request_binding`, which this package has always used, and
+   `saml.security.want_logout_signed` (`SAML_WANT_LOGOUT_SIGNED`, on by default). An application
+   that had switched `SAML2_WANT_LOGOUT_SIGNED` off finds it on again until it sets the new name.
+
+Nothing else changes: same routes, same tables, same tenant UUIDs. New tenants created through the
+vendor's `saml2:create-tenant` command get a UUIDv7 rather than a v4; both are 36 characters.
 
 ### Two things the application still does itself
 
@@ -502,12 +530,26 @@ working Entra integration:
 | `want_messages_signed` | Additionally requires the `<samlp:Response>` envelope to be signed. Switch the enterprise application to "Sign SAML response and assertion" at the IdP **first**. |
 | `allow_unkeyed_assertions` | See **Replay protection** above. |
 
-And two that are **on by default**, which you switch off only for a reason:
+And three that are **on by default**, which you switch off only for a reason:
 
 | `config('saml.security.*')` | What it does |
 |---|---|
-| `strict_request_binding` | Ties a response to the AuthnRequest this application sent, which is what closes login CSRF — without it the assertion consumer accepts any validly signed, in-date, correctly addressed response, whether or not anybody here asked for it. Carried down to the vendor package as `saml2.strictRequestBinding`. **It refuses IdP-initiated sign-in**, so an application reached through the Entra "My Apps" tile must retire the tile or switch this off. |
+| `strict_request_binding` | Ties a response to the AuthnRequest this application sent, which is what closes login CSRF — without it the assertion consumer accepts any validly signed, in-date, correctly addressed response, whether or not anybody here asked for it. Implemented by this package's controller, which is bound over the vendor's: it keeps the AuthnRequest's ID in the session at login and hands it to the toolkit at the assertion consumer. **It refuses IdP-initiated sign-in**, so an application reached through the Entra "My Apps" tile must retire the tile or switch this off. |
 | `reject_unsolicited` | Additionally has the toolkit refuse a response carrying an `InResponseTo` it cannot account for. Takes effect only together with the switch above, and deliberately so: on its own it would reject every ordinary sign-in, because Entra answers an AuthnRequest with an `InResponseTo` and there would be no stored request ID to match it against. Together, the two decide what a **lost request ID** means — a dropped cookie, an expired session. On: the sign-in fails and the person retries. Off: the binding silently falls back to accepting any valid response, which is the thing it exists to prevent. |
+| `want_logout_signed` | Refuses a logout message that carries no signature. The toolkit only demands one when `want_messages_signed` is on, and everything else it checks at `/saml2/{uuid}/sls` is satisfiable from public values — so without this a crafted link or an `<img>` tag ends the session of whichever browser loads it. Entra ID signs its logout messages. A logout POSTed to that route is refused too: the toolkit reads only the HTTP-Redirect binding, so it could not have verified one. |
+
+One more, which is not configurable: **`RelayState` and the logout route's `returnTo` are held to this
+application's own origin** before anything redirects to them. RelayState comes back from the identity
+provider as a plain request parameter, so redirecting to it unchecked turns a successful sign-in into
+an open redirect. Other hosts, non-http(s) schemes and the protocol-relative forms browsers normalise
+(`//elsewhere`, `/\elsewhere`) are dropped; paths and same-host URLs are unchanged. If your application
+deliberately redirects to another host after sign-in, that is the code that will stop working.
+
+All three checks are this package's subclasses of the vendor's controller, handler and user —
+`NBCSIT\Sso\Http\Controllers\Saml2Controller` and `NBCSIT\Sso\Saml2\*`. They apply to the vendor's
+routes without any change to them. An application that sets `saml2.useRoutes` to `false` and routes to
+a controller of its own keeps the logout signature and RelayState checks, which live in the handler and
+the user, and loses request binding and the logout `returnTo` check, which live in the controller.
 
 ### Request binding needs `SESSION_SAME_SITE=none`
 

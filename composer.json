@@ -19,8 +19,8 @@
         "illuminate/database": "^13.0",
         "illuminate/http": "^13.0",
         "illuminate/support": "^13.0",
-        "nbcsit/laravel-saml2": "^2.5",
         "ramsey/uuid": "^4.0",
+        "scaler-tech/laravel-saml2": "^2.7.2",
         "spatie/laravel-permission": "^6.18",
         "spatie/laravel-settings": "^3.4"
     },
@@ -68,12 +68,5 @@
         }
     },
     "minimum-stability": "stable",
-    "prefer-stable": true,
-    "repositories": [
-        {
-            "name": "saml2",
-            "type": "vcs",
-            "url": "https://github.com/NBCS-IT/laravel-saml2"
-        }
-    ]
+    "prefer-stable": true
 }

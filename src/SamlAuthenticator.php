@@ -6,13 +6,13 @@ use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
-use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Sso\Contracts\ResolvesSamlUsers;
 use NBCSIT\Sso\Enums\SamlLoginOutcome;
 use NBCSIT\Sso\Groups\GroupSynchroniser;
 use NBCSIT\Sso\Models\SamlAssertion;
 use NBCSIT\Sso\Settings\SamlSettings;
 use NBCSIT\Sso\Support\SamlIdentity;
+use Slides\Saml2\Models\Tenant;
 
 /**
  * Turns a validated SAML assertion into a signed-in local user.

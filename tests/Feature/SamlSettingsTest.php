@@ -1,8 +1,8 @@
 <?php
 
-use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Sso\Settings\SamlSettings;
 use Ramsey\Uuid\Uuid;
+use Slides\Saml2\Models\Tenant;
 
 function settingsWithUuid(?string $uuid): SamlSettings
 {

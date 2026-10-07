@@ -105,10 +105,9 @@ return [
     | `strict_request_binding` ties each response to the AuthnRequest this
     | application sent, which is what closes login CSRF — without it the
     | assertion consumer accepts any validly signed, in-date, correctly
-    | addressed response, whether or not anybody here asked for it. It is
-    | carried down to the vendor package as `saml2.strictRequestBinding`, and
-    | needs nbcsit/laravel-saml2 2.5.0 or later, which is the release that keeps
-    | the request ID.
+    | addressed response, whether or not anybody here asked for it. The
+    | binding is this package's own: its controller keeps the request ID in the
+    | session at login and hands it to the toolkit at the assertion consumer.
     |
     | On by default. **It refuses IdP-initiated sign-in**, so an application
     | reached through the Entra "My Apps" tile must either retire the tile or
@@ -133,6 +132,14 @@ return [
     | silently falls back to accepting any valid response, which is the thing
     | the binding exists to prevent — so it is on.
     |
+    | `want_logout_signed` refuses a logout message that carries no signature.
+    | The toolkit only demands one when `want_messages_signed` is on, and the
+    | other checks it makes — Destination, Issuer, NotOnOrAfter — are all
+    | satisfiable from public values, so without this a crafted link or an <img>
+    | tag ends the session of whichever browser loads it. Entra ID signs its
+    | logout messages, so it is on; switch it off only for an identity provider
+    | that genuinely sends them unsigned.
+    |
     | `allow_unkeyed_assertions` decides what happens when a response arrives
     | with neither an assertion ID nor a message ID, which leaves replay
     | detection nothing to key on. Off means such a response is refused. Turning
@@ -145,6 +152,7 @@ return [
         'want_messages_signed' => env('SAML_WANT_MESSAGES_SIGNED', false),
         'reject_unsolicited' => env('SAML_REJECT_UNSOLICITED', true),
         'strict_request_binding' => env('SAML_STRICT_REQUEST_BINDING', true),
+        'want_logout_signed' => env('SAML_WANT_LOGOUT_SIGNED', true),
         'allow_unkeyed_assertions' => env('SAML_ALLOW_UNKEYED_ASSERTIONS', false),
     ],
 
