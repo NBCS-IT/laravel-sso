@@ -105,10 +105,9 @@ return [
     | `strict_request_binding` ties each response to the AuthnRequest this
     | application sent, which is what closes login CSRF — without it the
     | assertion consumer accepts any validly signed, in-date, correctly
-    | addressed response, whether or not anybody here asked for it. It is
-    | carried down to the vendor package as `saml2.strictRequestBinding`, and
-    | needs nbcsit/laravel-saml2 2.5.0 or later, which is the release that keeps
-    | the request ID.
+    | addressed response, whether or not anybody here asked for it. The
+    | binding is this package's own: its controller keeps the request ID in the
+    | session at login and hands it to the toolkit at the assertion consumer.
     |
     | On by default. **It refuses IdP-initiated sign-in**, so an application
     | reached through the Entra "My Apps" tile must either retire the tile or
@@ -120,18 +119,27 @@ return [
     | cross-site POST — so the request ID stored at login is not there to match
     | against, and every sign-in is refused. See the README.
     |
-    | `reject_unsolicited` additionally has the toolkit refuse a response
-    | carrying an InResponseTo it cannot account for, and only takes effect
-    | together with the switch above — on its own it refuses every ordinary
-    | sign-in, because Entra answers an AuthnRequest with an InResponseTo and
-    | there would be no stored request ID to match it against.
+    | With the binding on, a response is accepted only as the answer to a
+    | request this session has a record of. A lost request ID — a session that
+    | did not survive the round trip to the identity provider: a dropped cookie,
+    | an expired session, a browser that discarded it — is refused like a
+    | response nobody asked for: the sign-in fails and the person tries again.
     |
-    | Together they decide what a lost request ID means. That happens when a
-    | session did not survive the round trip to the identity provider: a dropped
-    | cookie, an expired session, a browser that discarded it. With this on, the
-    | sign-in fails and the person tries again. With it off, the binding
-    | silently falls back to accepting any valid response, which is the thing
-    | the binding exists to prevent — so it is on.
+    | `reject_unsolicited` has the toolkit refuse a response carrying an
+    | InResponseTo it cannot account for. With the binding on, that response
+    | has already been refused before the toolkit sees it, so this is a second
+    | line rather than the first, and is kept on so that it still is. It only
+    | takes effect together with the switch above — on its own it refuses every
+    | ordinary sign-in, because Entra answers an AuthnRequest with an
+    | InResponseTo and there would be no stored request ID to match it against.
+    |
+    | `want_logout_signed` refuses a logout message that carries no signature.
+    | The toolkit only demands one when `want_messages_signed` is on, and the
+    | other checks it makes — Destination, Issuer, NotOnOrAfter — are all
+    | satisfiable from public values, so without this a crafted link or an <img>
+    | tag ends the session of whichever browser loads it. Entra ID signs its
+    | logout messages, so it is on; switch it off only for an identity provider
+    | that genuinely sends them unsigned.
     |
     | `allow_unkeyed_assertions` decides what happens when a response arrives
     | with neither an assertion ID nor a message ID, which leaves replay
@@ -145,6 +153,7 @@ return [
         'want_messages_signed' => env('SAML_WANT_MESSAGES_SIGNED', false),
         'reject_unsolicited' => env('SAML_REJECT_UNSOLICITED', true),
         'strict_request_binding' => env('SAML_STRICT_REQUEST_BINDING', true),
+        'want_logout_signed' => env('SAML_WANT_LOGOUT_SIGNED', true),
         'allow_unkeyed_assertions' => env('SAML_ALLOW_UNKEYED_ASSERTIONS', false),
     ],
 

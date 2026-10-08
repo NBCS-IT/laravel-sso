@@ -8,11 +8,11 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
-use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Sso\Database\Factories\IdentityProviderFactory;
 use NBCSIT\Sso\Metadata\IdpMetadataSynchroniser;
 use NBCSIT\Sso\Support\Certificate;
 use NBCSIT\Sso\Support\MetadataChange;
+use Slides\Saml2\Models\Tenant;
 
 /**
  * A SAML identity provider — the vendor package's tenant row, plus everything

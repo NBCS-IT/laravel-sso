@@ -1,11 +1,11 @@
 <?php
 
-use NBCSIT\Saml2\Models\Tenant;
 use NBCSIT\Sso\Enums\SamlLoginOutcome;
 use NBCSIT\Sso\Listeners\HandleSamlSignIn;
 use NBCSIT\Sso\Settings\SamlSettings;
 use NBCSIT\Sso\Tests\Fixtures\User;
 use Ramsey\Uuid\Uuid;
+use Slides\Saml2\Models\Tenant;
 
 function tenantFor(bool $enabled): Tenant
 {

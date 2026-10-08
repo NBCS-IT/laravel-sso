@@ -2,10 +2,6 @@
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
-use NBCSIT\Saml2\Auth as SamlAuth;
-use NBCSIT\Saml2\Events\SignedIn;
-use NBCSIT\Saml2\Events\SignedOut;
-use NBCSIT\Saml2\Saml2User;
 use NBCSIT\Sso\Enums\SamlLoginOutcome;
 use NBCSIT\Sso\Exceptions\MissingSamlSession;
 use NBCSIT\Sso\Listeners\HandleSamlSignIn;
@@ -14,6 +10,10 @@ use NBCSIT\Sso\Models\IdentityProvider;
 use NBCSIT\Sso\Models\SamlAssertion;
 use NBCSIT\Sso\Tests\Fixtures\User;
 use OneLogin\Saml2\Auth as OneLoginAuth;
+use Slides\Saml2\Auth as SamlAuth;
+use Slides\Saml2\Events\SignedIn;
+use Slides\Saml2\Events\SignedOut;
+use Slides\Saml2\Saml2User;
 
 /**
  * Fire the listener with a real SignedIn event, on a started session.

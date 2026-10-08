@@ -1,13 +1,14 @@
 <?php
 
-use NBCSIT\Saml2\OneLoginBuilder;
 use NBCSIT\Sso\Models\IdentityProvider;
 use NBCSIT\Sso\MultiCertificateOneLoginBuilder;
-use NBCSIT\Sso\SsoServiceProvider;
+use NBCSIT\Sso\Saml2\Auth;
 use NBCSIT\Sso\Support\Certificate;
 use NBCSIT\Sso\Tests\Fixtures\SamlMetadataFixtures;
 use NBCSIT\Sso\Tests\Fixtures\SpCertificateFixtures;
 use OneLogin\Saml2\Utils as OneLoginUtils;
+use Slides\Saml2\Auth as VendorAuth;
+use Slides\Saml2\OneLoginBuilder;
 
 /**
  * @return array<string, mixed>
@@ -247,32 +248,18 @@ describe('the security floor', function () {
     });
 });
 
-describe('the request-binding switch', function () {
-    it('is carried down to the vendor package, which is what implements it', function () {
-        config(['saml.security.strict_request_binding' => true]);
+/*
+| The vendor controller, its facade and every listener ask for the handler by
+| the vendor's class name. What they must get is the one that binds requests
+| and checks logout signatures.
+*/
+it('hands out this package\'s handler under the vendor\'s name', function () {
+    $provider = IdentityProvider::factory()->create(['name_id_format' => 'persistent']);
 
-        (new SsoServiceProvider(app()))->boot();
+    app(OneLoginBuilder::class)->withTenant($provider)->bootstrap();
 
-        expect(config('saml2.strictRequestBinding'))->toBeTrue();
-    });
-
-    it('is on by default, so login CSRF is closed without anybody opting in', function () {
-        (new SsoServiceProvider(app()))->boot();
-
-        expect(config('saml2.strictRequestBinding'))->toBeTrue();
-    });
-
-    /*
-    | The escape hatch for an application still reached through the Entra "My
-    | Apps" tile: a response nobody asked for has no InResponseTo to match.
-    */
-    it('can be switched off for an application that still needs IdP-initiated sign-in', function () {
-        config(['saml.security.strict_request_binding' => false]);
-
-        (new SsoServiceProvider(app()))->boot();
-
-        expect(config('saml2.strictRequestBinding'))->toBeFalse();
-    });
+    expect(app(VendorAuth::class))->toBeInstanceOf(Auth::class)
+        ->and(app(VendorAuth::class)->getTenant()->is($provider))->toBeTrue();
 });
 
 describe('the signing switches', function () {

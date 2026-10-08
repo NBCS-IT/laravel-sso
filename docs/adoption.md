@@ -16,7 +16,7 @@ undo.
 ## Path A — an application with no SAML
 
 1. Add both repository entries and require the package (see the README).
-2. `php artisan vendor:publish --provider="NBCSIT\Saml2\ServiceProvider"` — the vendor package
+2. `php artisan vendor:publish --provider="Slides\Saml2\ServiceProvider"` — the vendor package
    registers its routes from `config/saml2.php` before it merges its own defaults, so that file has
    to exist.
 3. `php artisan vendor:publish --tag=saml-config`.
@@ -64,7 +64,13 @@ order that worked.
 An application on an **earlier generation of this implementation** — the ancestor this package was
 rewritten from — does not lack a SAML implementation. It will already declare
 `nbcsit/laravel-saml2`, `laravel/framework: ^13.0`, `spatie/laravel-permission` and
-`spatie/laravel-settings`, so the package's *requirements* are already met. That is the easy part.
+`spatie/laravel-settings`, so the package's *requirements* are nearly met. That is the easy part.
+
+The exception is the first of those. `nbcsit/laravel-saml2` is NBCS IT's fork of the archived
+`24slides/laravel-saml2`, and this package now requires the maintained `scaler-tech/laravel-saml2`
+instead, carrying the fork's security fixes itself. Remove the fork and its `repositories` entry when
+you require this package, and rename `NBCSIT\Saml2` to `Slides\Saml2` wherever the application names
+it — see the README's upgrade notes.
 
 ### Pre-flight audit
 
@@ -83,6 +89,10 @@ certificate — were both real.
 - [ ] **Read `config/saml2.php`, and read `routesMiddleware` in particular.** Publishing will not
       change it. See collision 6.
 - [ ] **List every route and middleware group that names `App\Http\Middleware\NBCSSAML`.**
+- [ ] **List everything that names `NBCSIT\Saml2`** — listeners, facade aliases, scripts that run
+      `vendor:publish --provider`. The vendor classes are `Slides\Saml2` again.
+- [ ] **Check `config/saml2.php` for `strictRequestBinding` and `wantLogoutSigned`.** Neither is read
+      any more; their replacements are in `config/saml.php`, under `security`.
 - [ ] **List every already-run migration that creates something the package now owns** — a table, a
       settings group, a file on disk. Every one of them has to be emptied; see collision 2.
 - [ ] **Confirm whether the project manages its own SP signing certificate** (`SamlSigningCertController`,

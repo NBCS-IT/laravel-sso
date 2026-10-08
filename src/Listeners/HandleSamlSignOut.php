@@ -3,7 +3,7 @@
 namespace NBCSIT\Sso\Listeners;
 
 use Illuminate\Support\Facades\Auth;
-use NBCSIT\Saml2\Events\SignedOut;
+use Slides\Saml2\Events\SignedOut;
 
 /**
  * Single logout: the IdP has ended the session, so end the local one too.
